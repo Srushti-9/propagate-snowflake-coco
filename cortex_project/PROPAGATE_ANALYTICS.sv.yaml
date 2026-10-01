@@ -1,0 +1,152 @@
+name: PROPAGATE_ANALYTICS
+description: 'PROPAGATE supply-chain propagation analytics: reconstructed propagation
+  chains (root signal to business impact with intervention lead time), daily regional
+  business metrics (revenue, repeat purchase, support tickets), and the normalized
+  event timeline with deviation scores.'
+tables:
+  - name: CHAINS
+    base_table:
+      database: PROPAGATE
+      schema: ANALYTICS
+      table: CHAINS
+    primary_key:
+      columns:
+        - ROOT_EVENT
+    dimensions:
+      - name: CHAIN_ID
+        expr: CHAIN_ID
+        data_type: VARCHAR
+      - name: ROOT_EVENT
+        expr: ROOT_EVENT
+        data_type: VARCHAR
+      - name: ROOT_TYPE
+        expr: ROOT_TYPE
+        data_type: VARCHAR
+      - name: EARLIEST_SIGNAL_FUNCTION
+        expr: EARLIEST_SIGNAL_FUNCTION
+        data_type: VARCHAR
+      - name: IMPACT_EVENT
+        expr: IMPACT_EVENT
+        data_type: VARCHAR
+      - name: IMPACT_TYPE
+        expr: IMPACT_TYPE
+        data_type: VARCHAR
+      - name: IMPACT_REGION
+        expr: IMPACT_REGION
+        data_type: VARCHAR
+      - name: EDGE_COUNT
+        expr: EDGE_COUNT
+        data_type: NUMBER
+      - name: NODE_COUNT
+        expr: NODE_COUNT
+        data_type: NUMBER
+      - name: AFFECTED_ENTITY_COUNT
+        expr: AFFECTED_ENTITY_COUNT
+        data_type: NUMBER
+      - name: INTERVENTION_FUNCTION
+        expr: INTERVENTION_FUNCTION
+        data_type: VARCHAR
+      - name: INTERVENTION_LEAD_DAYS
+        expr: INTERVENTION_LEAD_DAYS
+        data_type: NUMBER
+    time_dimensions:
+      - name: ROOT_TIME
+        expr: ROOT_TIME
+        data_type: TIMESTAMP_NTZ
+      - name: IMPACT_TIME
+        expr: IMPACT_TIME
+        data_type: TIMESTAMP_NTZ
+    facts:
+      - name: TOTAL_SCORE
+        expr: TOTAL_SCORE
+        data_type: FLOAT
+      - name: MIN_EDGE_SCORE
+        expr: MIN_EDGE_SCORE
+        data_type: FLOAT
+      - name: AVG_EDGE_SCORE
+        expr: AVG_EDGE_SCORE
+        data_type: FLOAT
+    unique_keys:
+      - columns:
+          - IMPACT_EVENT
+  - name: BUSINESS_METRICS
+    base_table:
+      database: PROPAGATE
+      schema: CORE
+      table: BUSINESS_METRICS
+    dimensions:
+      - name: REGION
+        expr: REGION
+        data_type: VARCHAR
+      - name: SUPPORT_TICKET_COUNT
+        expr: SUPPORT_TICKET_COUNT
+        data_type: NUMBER
+    time_dimensions:
+      - name: METRIC_DATE
+        expr: METRIC_DATE
+        data_type: DATE
+    facts:
+      - name: REVENUE
+        expr: REVENUE
+        data_type: NUMBER
+      - name: REPEAT_PURCHASE_RATE
+        expr: REPEAT_PURCHASE_RATE
+        data_type: FLOAT
+  - name: EVENT_LOG
+    base_table:
+      database: PROPAGATE
+      schema: ANALYTICS
+      table: EVENT_LOG
+    primary_key:
+      columns:
+        - EVENT_ID
+    dimensions:
+      - name: EVENT_ID
+        expr: EVENT_ID
+        data_type: VARCHAR
+      - name: EVENT_TYPE
+        expr: EVENT_TYPE
+        data_type: VARCHAR
+      - name: BUSINESS_FUNCTION
+        expr: BUSINESS_FUNCTION
+        data_type: VARCHAR
+      - name: ENTITY_TYPE
+        expr: ENTITY_TYPE
+        data_type: VARCHAR
+      - name: ENTITY_ID
+        expr: ENTITY_ID
+        data_type: VARCHAR
+      - name: LINK_REGION
+        expr: LINK_REGION
+        data_type: VARCHAR
+    time_dimensions:
+      - name: EVENT_TIME
+        expr: EVENT_TIME
+        data_type: TIMESTAMP_NTZ
+    facts:
+      - name: MAGNITUDE
+        expr: MAGNITUDE
+        data_type: FLOAT
+      - name: DEVIATION_SCORE
+        expr: DEVIATION_SCORE
+        data_type: FLOAT
+verified_queries:
+  - name: 0;1
+    question: Which propagation chains have the longest intervention lead times?
+    sql: SELECT CHAIN_ID, IMPACT_REGION, INTERVENTION_LEAD_DAYS FROM chains ORDER
+      BY INTERVENTION_LEAD_DAYS DESC
+    verified_at: 1790875966
+    verified_by: Semantic Model Generator
+  - name: 1;1
+    question: What was the lowest revenue recorded by each region during the week
+      of September 18-25, 2026?
+    sql: SELECT REGION, MIN(REVENUE) AS min_revenue FROM business_metrics WHERE METRIC_DATE
+      BETWEEN '2026-09-18' AND '2026-09-25' GROUP BY REGION
+    verified_at: 1790875966
+    verified_by: Semantic Model Generator
+  - name: 2;1
+    question: Which business functions show the strongest anomalies?
+    sql: SELECT BUSINESS_FUNCTION, COUNT(*) AS n, ROUND(AVG(DEVIATION_SCORE), 2) AS
+      avg_dev FROM event_log WHERE DEVIATION_SCORE >= 2 GROUP BY BUSINESS_FUNCTION
+    verified_at: 1790875966
+    verified_by: Semantic Model Generator
