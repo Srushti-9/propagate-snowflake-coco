@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+
+# OS
+.DS_Store
+
+# Snowflake / local creds — never commit
+*.p8
+*.pem
+config.toml
+connections.toml
+secrets.toml
+
+# Scratch
+tmp/
+*.log
