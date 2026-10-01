@@ -26,11 +26,34 @@ says so.
 
 ## Layout
 ```
-sql/        DDL, seed, engine SQL (phased)
-python/     Snowpark data generator + helpers
-streamlit/  Streamlit-in-Snowflake app
-docs/       phase notes, Phase 0 capability matrix, validation results
+sql/            DDL, seed, engine SQL + per-phase test suites (01..09, phaseN_tests)
+cortex_project/ agent-studio specs (semantic view + Cortex Agent)
+streamlit/      Streamlit-in-Snowflake app + manifest
+docs/           per-phase results, Phase 0 capability matrix, demo script
 ```
 
-## Status
-Phase 0 (capability spike) pending.
+## Pipeline (SQL, phased + idempotent)
+```
+01 setup → 02 tables → 03 seed (deterministic ground truth) → 04 event spine
+→ 05 candidate linker → 06 evidence scorer → 07 chain builder
+→ 08 streamlit deploy → 09 validation scorecard
+```
+
+## Status — COMPLETE (Phases 0–8)
+Validated against injected ground truth (`sql/phase8_tests.sql`, 12/12 PASS):
+
+| metric | result |
+|---|---|
+| chain reconstruction F1 / precision / recall | **1.0 / 1.0 / 1.0** |
+| chains reconstructed | **3** (golden + 2 historical) |
+| earliest-signal detection | **3/3** chains rooted at true early signal |
+| evidence coverage | **100%** (≥2 components per chain edge) |
+| historical replay | **2/2** |
+| false-link rate | **0.7%** |
+
+Golden chain: supplier schedule change → … → west revenue impact, **18-day intervention lead**.
+See `docs/demo_script.md` for the walkthrough and `docs/phase8_results.md` for the full scorecard.
+
+## Reproduce
+Run `sql/01_setup.sql` … `sql/09_validation.sql` in order (CoCo CLI / Snowsight), then
+`sql/phaseN_tests.sql` to re-verify. Streamlit: `sql/08_streamlit_deploy.sql`.
