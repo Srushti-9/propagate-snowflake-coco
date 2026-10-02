@@ -505,7 +505,7 @@ elif page == "Historical Comparison":
                                         "EDGE_COUNT", "COHERENCE_SCORE", "INTERVENTION_LEAD_DAYS"]].copy()
                     cmp_df.columns = ["Chain", "Root Date", "Impact Date", "Region",
                                       "Steps", "Coherence", "Lead Days"]
-                    st.dataframe(cmp_df, use_container_width=True, hide_index=True)
+                    st.dataframe(cmp_df, use_container_width=True)
 
         # ── Revenue chart ──
         st.markdown("### West Region Revenue")
