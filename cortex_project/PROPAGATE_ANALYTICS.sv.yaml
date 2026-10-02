@@ -1,14 +1,19 @@
 name: PROPAGATE_ANALYTICS
-description: 'PROPAGATE supply-chain propagation analytics: reconstructed propagation
-  chains (root signal to business impact with intervention lead time), daily regional
-  business metrics (revenue, repeat purchase, support tickets), and the normalized
-  event timeline with deviation scores.'
+description: >
+  PROPAGATE supply-chain propagation intelligence: reconstructed propagation chains
+  (root signal to business impact with intervention lead time), step-by-step chain
+  investigation with document evidence, edge-level evidence summaries, daily regional
+  business metrics, and the normalized event timeline with deviation scores.
 tables:
   - name: CHAINS
     base_table:
       database: PROPAGATE
       schema: ANALYTICS
       table: CHAINS
+    description: >
+      Propagation chain summaries. Each row is one reconstructed chain from a root signal
+      to a downstream business impact. Contains intervention point, lead time, coherence score,
+      and chain status (complete = reaches revenue impact, partial = shorter chain).
     primary_key:
       columns:
         - ROOT_EVENT
@@ -16,15 +21,18 @@ tables:
       - name: CHAIN_ID
         expr: CHAIN_ID
         data_type: VARCHAR
+        description: Unique chain identifier (e.g. CHAIN_SC-G1 for the golden September chain)
       - name: ROOT_EVENT
         expr: ROOT_EVENT
         data_type: VARCHAR
       - name: ROOT_TYPE
         expr: ROOT_TYPE
         data_type: VARCHAR
+        description: 'Event type at the root: SCHEDULE_CHANGE, SHIPMENT_DELAY, ORDER_DELIVERY, REFUND'
       - name: EARLIEST_SIGNAL_FUNCTION
         expr: EARLIEST_SIGNAL_FUNCTION
         data_type: VARCHAR
+        description: 'Business function of the earliest signal: SUPPLIER, SHIPPING, WAREHOUSE, FULFILLMENT, SUPPORT, FINANCE'
       - name: IMPACT_EVENT
         expr: IMPACT_EVENT
         data_type: VARCHAR
@@ -34,6 +42,7 @@ tables:
       - name: IMPACT_REGION
         expr: IMPACT_REGION
         data_type: VARCHAR
+        description: 'Region affected: west, east, central'
       - name: EDGE_COUNT
         expr: EDGE_COUNT
         data_type: NUMBER
@@ -43,19 +52,31 @@ tables:
       - name: AFFECTED_ENTITY_COUNT
         expr: AFFECTED_ENTITY_COUNT
         data_type: NUMBER
+      - name: CHAIN_STATUS
+        expr: CHAIN_STATUS
+        data_type: VARCHAR
+        description: 'complete = reaches revenue impact, partial = shorter chain'
+      - name: EARLIEST_INTERVENTION_EVENT
+        expr: EARLIEST_INTERVENTION_EVENT
+        data_type: VARCHAR
+        description: The earliest event in the chain where intervention was possible
       - name: INTERVENTION_FUNCTION
         expr: INTERVENTION_FUNCTION
         data_type: VARCHAR
+        description: Business function of the intervention point
       - name: INTERVENTION_LEAD_DAYS
         expr: INTERVENTION_LEAD_DAYS
         data_type: NUMBER
+        description: Days between earliest intervention point and final impact
     time_dimensions:
       - name: ROOT_TIME
         expr: ROOT_TIME
         data_type: TIMESTAMP_NTZ
+        description: Timestamp of the root (earliest) event
       - name: IMPACT_TIME
         expr: IMPACT_TIME
         data_type: TIMESTAMP_NTZ
+        description: Timestamp of the impact (final) event
     facts:
       - name: TOTAL_SCORE
         expr: TOTAL_SCORE
@@ -63,17 +84,162 @@ tables:
       - name: MIN_EDGE_SCORE
         expr: MIN_EDGE_SCORE
         data_type: FLOAT
+        description: Weakest edge score in the chain - identifies the weakest link
       - name: AVG_EDGE_SCORE
         expr: AVG_EDGE_SCORE
         data_type: FLOAT
+      - name: COHERENCE_SCORE
+        expr: COHERENCE_SCORE
+        data_type: FLOAT
+        description: Overall chain coherence (0-1) combining evidence quality, path consistency, and function progression
     unique_keys:
       - columns:
           - IMPACT_EVENT
+  - name: CHAIN_INVESTIGATION
+    base_table:
+      database: PROPAGATE
+      schema: ANALYTICS
+      table: V_CHAIN_INVESTIGATION
+    description: >
+      Step-by-step chain investigation with both structural and document evidence.
+      Each row is one edge (step) in a chain, with its structural score, evidence class,
+      document evidence status, supporting/contradicting document counts and snippets.
+      Use this table to drill into individual chain steps and their evidence.
+    primary_key:
+      columns:
+        - EDGE_ID
+    dimensions:
+      - name: CHAIN_ID
+        expr: CHAIN_ID
+        data_type: VARCHAR
+        description: Chain this edge belongs to
+      - name: STEP_NO
+        expr: STEP_NO
+        data_type: NUMBER
+        description: Position of this edge in the chain (1 = first step)
+      - name: EDGE_ID
+        expr: EDGE_ID
+        data_type: VARCHAR
+      - name: RELATION
+        expr: RELATION
+        data_type: VARCHAR
+        description: >
+          Relationship type: SCHEDULE_CHANGE_PRECEDES_DELAY, DELAY_PRECEDES_BACKLOG,
+          BACKLOG_PRECEDES_LATE_DELIVERY, LATE_DELIVERY_PRECEDES_COMPLAINT,
+          COMPLAINT_ASSOCIATED_WITH_REFUND, REFUNDS_ASSOCIATED_WITH_REVENUE_IMPACT
+      - name: STRUCTURAL_CLASS
+        expr: STRUCTURAL_CLASS
+        data_type: VARCHAR
+        description: >
+          Evidence class from Phase 2: CAUSAL_STATED (document explicitly states cause),
+          TEXT_SUPPORTED (document supports), HISTORICAL_SUPPORTED (pattern recurs),
+          TEMPORAL_STRUCTURAL (timing + entity overlap only)
+      - name: SOURCE_EVENT_TYPE
+        expr: SOURCE_EVENT_TYPE
+        data_type: VARCHAR
+      - name: SOURCE_FUNCTION
+        expr: SOURCE_FUNCTION
+        data_type: VARCHAR
+      - name: SOURCE_ENTITY
+        expr: SOURCE_ENTITY
+        data_type: VARCHAR
+      - name: TARGET_EVENT_TYPE
+        expr: TARGET_EVENT_TYPE
+        data_type: VARCHAR
+      - name: TARGET_FUNCTION
+        expr: TARGET_FUNCTION
+        data_type: VARCHAR
+      - name: TARGET_ENTITY
+        expr: TARGET_ENTITY
+        data_type: VARCHAR
+      - name: REGION
+        expr: REGION
+        data_type: VARCHAR
+      - name: DOCUMENT_EVIDENCE_STATUS
+        expr: DOCUMENT_EVIDENCE_STATUS
+        data_type: VARCHAR
+        description: >
+          Document evidence status: STRONGLY_SUPPORTED, SUPPORTED, WEAK_EVIDENCE,
+          MIXED_EVIDENCE, CONTRADICTED, NO_DOCUMENT_EVIDENCE
+      - name: SUPPORTING_DOC_COUNT
+        expr: SUPPORTING_DOC_COUNT
+        data_type: NUMBER
+      - name: CONTRADICTING_DOC_COUNT
+        expr: CONTRADICTING_DOC_COUNT
+        data_type: NUMBER
+      - name: SUPPORT_SUMMARY
+        expr: SUPPORT_SUMMARY
+        data_type: VARCHAR
+        description: AI-generated summary of the strongest supporting evidence
+      - name: SUPPORT_SNIPPET
+        expr: SUPPORT_SNIPPET
+        data_type: VARCHAR
+        description: Short text excerpt from the strongest supporting document
+      - name: SUPPORT_DOC_ID
+        expr: SUPPORT_DOC_ID
+        data_type: VARCHAR
+      - name: CONTRADICTION_SUMMARY
+        expr: CONTRADICTION_SUMMARY
+        data_type: VARCHAR
+        description: AI-generated summary of the strongest contradictory evidence
+      - name: CONTRADICTION_SNIPPET
+        expr: CONTRADICTION_SNIPPET
+        data_type: VARCHAR
+      - name: CONTRADICTION_DOC_ID
+        expr: CONTRADICTION_DOC_ID
+        data_type: VARCHAR
+      - name: ROOT_TYPE
+        expr: ROOT_TYPE
+        data_type: VARCHAR
+      - name: IMPACT_TYPE
+        expr: IMPACT_TYPE
+        data_type: VARCHAR
+      - name: IMPACT_REGION
+        expr: IMPACT_REGION
+        data_type: VARCHAR
+      - name: CHAIN_STATUS
+        expr: CHAIN_STATUS
+        data_type: VARCHAR
+      - name: INTERVENTION_FUNCTION
+        expr: INTERVENTION_FUNCTION
+        data_type: VARCHAR
+      - name: EARLIEST_INTERVENTION_EVENT
+        expr: EARLIEST_INTERVENTION_EVENT
+        data_type: VARCHAR
+    time_dimensions:
+      - name: SOURCE_TIME
+        expr: SOURCE_TIME
+        data_type: TIMESTAMP_NTZ
+      - name: TARGET_TIME
+        expr: TARGET_TIME
+        data_type: TIMESTAMP_NTZ
+    facts:
+      - name: STRUCTURAL_SCORE
+        expr: STRUCTURAL_SCORE
+        data_type: FLOAT
+        description: Phase 2 evidence score for this edge (0-1)
+      - name: LAG_DAYS
+        expr: LAG_DAYS
+        data_type: NUMBER
+        description: Days between source and target events
+      - name: DOCUMENT_SCORE
+        expr: DOCUMENT_SCORE
+        data_type: FLOAT
+        description: Phase 3 net document evidence score (-1 to +1)
+      - name: COHERENCE_SCORE
+        expr: COHERENCE_SCORE
+        data_type: FLOAT
+      - name: INTERVENTION_LEAD_DAYS
+        expr: INTERVENTION_LEAD_DAYS
+        data_type: NUMBER
   - name: BUSINESS_METRICS
     base_table:
       database: PROPAGATE
       schema: CORE
       table: BUSINESS_METRICS
+    description: >
+      Daily regional business metrics. Use to quantify revenue impact, support ticket
+      volume, and repeat purchase rate changes.
     dimensions:
       - name: REGION
         expr: REGION
@@ -97,6 +263,9 @@ tables:
       database: PROPAGATE
       schema: ANALYTICS
       table: EVENT_LOG
+    description: >
+      Normalized event timeline. Every structured and document event as a typed row
+      with z-score deviation scores and entity link columns.
     primary_key:
       columns:
         - EVENT_ID
@@ -130,23 +299,100 @@ tables:
       - name: DEVIATION_SCORE
         expr: DEVIATION_SCORE
         data_type: FLOAT
+        description: Z-score indicating how abnormal this event is (higher = more anomalous)
 verified_queries:
-  - name: 0;1
+  - name: west_revenue_chains
+    question: Which propagation chains affected West-region revenue in September 2026?
+    sql: >
+      SELECT CHAIN_ID, ROOT_TYPE, ROOT_TIME, IMPACT_TIME, EDGE_COUNT,
+             INTERVENTION_LEAD_DAYS, COHERENCE_SCORE, CHAIN_STATUS
+      FROM chains
+      WHERE IMPACT_REGION = 'west' AND IMPACT_TYPE = 'REVENUE'
+        AND IMPACT_TIME >= '2026-09-01' AND IMPACT_TIME < '2026-10-01'
+      ORDER BY COHERENCE_SCORE DESC
+    verified_at: 1790875966
+    verified_by: Phase 4 Agent Build
+  - name: chain_steps_detail
+    question: Show the step-by-step propagation for chain CHAIN_SC-G1 with evidence
+    sql: >
+      SELECT STEP_NO, RELATION, SOURCE_ENTITY, TARGET_ENTITY,
+             SOURCE_TIME, TARGET_TIME, LAG_DAYS,
+             STRUCTURAL_SCORE, STRUCTURAL_CLASS,
+             DOCUMENT_EVIDENCE_STATUS, SUPPORTING_DOC_COUNT, CONTRADICTING_DOC_COUNT,
+             SUPPORT_SNIPPET
+      FROM chain_investigation
+      WHERE CHAIN_ID = 'CHAIN_SC-G1'
+      ORDER BY STEP_NO
+    verified_at: 1790875966
+    verified_by: Phase 4 Agent Build
+  - name: weakest_edge
+    question: Which edge in a chain has the weakest evidence?
+    sql: >
+      SELECT CHAIN_ID, STEP_NO, RELATION, STRUCTURAL_SCORE, STRUCTURAL_CLASS,
+             DOCUMENT_EVIDENCE_STATUS, SUPPORT_SNIPPET
+      FROM chain_investigation
+      WHERE CHAIN_ID = 'CHAIN_SC-G1'
+      ORDER BY STRUCTURAL_SCORE ASC
+      LIMIT 1
+    verified_at: 1790875966
+    verified_by: Phase 4 Agent Build
+  - name: contradictions
+    question: Is there any contradictory evidence in the propagation chains?
+    sql: >
+      SELECT CHAIN_ID, STEP_NO, RELATION, DOCUMENT_EVIDENCE_STATUS,
+             CONTRADICTING_DOC_COUNT, CONTRADICTION_DOC_ID, CONTRADICTION_SNIPPET
+      FROM chain_investigation
+      WHERE CONTRADICTING_DOC_COUNT > 0
+      ORDER BY CHAIN_ID, STEP_NO
+    verified_at: 1790875966
+    verified_by: Phase 4 Agent Build
+  - name: intervention_lead_times
     question: Which propagation chains have the longest intervention lead times?
-    sql: SELECT CHAIN_ID, IMPACT_REGION, INTERVENTION_LEAD_DAYS FROM chains ORDER
-      BY INTERVENTION_LEAD_DAYS DESC
+    sql: >
+      SELECT CHAIN_ID, IMPACT_REGION, INTERVENTION_LEAD_DAYS,
+             INTERVENTION_FUNCTION, EARLIEST_SIGNAL_FUNCTION
+      FROM chains
+      ORDER BY INTERVENTION_LEAD_DAYS DESC
     verified_at: 1790875966
-    verified_by: Semantic Model Generator
-  - name: 1;1
-    question: What was the lowest revenue recorded by each region during the week
-      of September 18-25, 2026?
-    sql: SELECT REGION, MIN(REVENUE) AS min_revenue FROM business_metrics WHERE METRIC_DATE
-      BETWEEN '2026-09-18' AND '2026-09-25' GROUP BY REGION
+    verified_by: Phase 4 Agent Build
+  - name: historical_comparison
+    question: Have we seen similar propagation patterns before September 2026?
+    sql: >
+      SELECT CHAIN_ID, ROOT_TYPE, ROOT_TIME, IMPACT_TIME, IMPACT_REGION,
+             EDGE_COUNT, COHERENCE_SCORE, INTERVENTION_LEAD_DAYS, CHAIN_STATUS
+      FROM chains
+      WHERE CHAIN_STATUS = 'complete'
+      ORDER BY ROOT_TIME
     verified_at: 1790875966
-    verified_by: Semantic Model Generator
-  - name: 2;1
-    question: Which business functions show the strongest anomalies?
-    sql: SELECT BUSINESS_FUNCTION, COUNT(*) AS n, ROUND(AVG(DEVIATION_SCORE), 2) AS
-      avg_dev FROM event_log WHERE DEVIATION_SCORE >= 2 GROUP BY BUSINESS_FUNCTION
+    verified_by: Phase 4 Agent Build
+  - name: evidence_gaps
+    question: Which chain edges have no document evidence?
+    sql: >
+      SELECT CHAIN_ID, STEP_NO, RELATION, STRUCTURAL_SCORE, STRUCTURAL_CLASS,
+             DOCUMENT_EVIDENCE_STATUS
+      FROM chain_investigation
+      WHERE DOCUMENT_EVIDENCE_STATUS = 'NO_DOCUMENT_EVIDENCE'
+      ORDER BY CHAIN_ID, STEP_NO
     verified_at: 1790875966
-    verified_by: Semantic Model Generator
+    verified_by: Phase 4 Agent Build
+  - name: west_revenue_decline
+    question: What was the lowest revenue recorded by each region during September 2026?
+    sql: >
+      SELECT REGION, MIN(REVENUE) AS min_revenue, AVG(REVENUE) AS avg_revenue
+      FROM business_metrics
+      WHERE METRIC_DATE BETWEEN '2026-09-01' AND '2026-09-30'
+      GROUP BY REGION
+    verified_at: 1790875966
+    verified_by: Phase 4 Agent Build
+  - name: delay_backlog_evidence
+    question: What evidence supports the shipment delay to warehouse backlog relationship?
+    sql: >
+      SELECT CHAIN_ID, STEP_NO, SOURCE_ENTITY, TARGET_ENTITY,
+             SOURCE_TIME, TARGET_TIME, STRUCTURAL_SCORE, STRUCTURAL_CLASS,
+             DOCUMENT_EVIDENCE_STATUS, SUPPORTING_DOC_COUNT, SUPPORT_SNIPPET,
+             CONTRADICTING_DOC_COUNT, CONTRADICTION_SNIPPET
+      FROM chain_investigation
+      WHERE RELATION = 'DELAY_PRECEDES_BACKLOG'
+      ORDER BY CHAIN_ID, STEP_NO
+    verified_at: 1790875966
+    verified_by: Phase 4 Agent Build
