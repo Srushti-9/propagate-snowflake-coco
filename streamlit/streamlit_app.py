@@ -23,6 +23,13 @@ CLASS_COLOR = {
     "TEMPORAL_STRUCTURAL": "#f39c12",
     "CORRELATION_ONLY": "#95a5a6",
 }
+CLASS_EXPLAIN = {
+    "CAUSAL_STATED": "A source document explicitly states the causal relationship.",
+    "TEXT_SUPPORTED": "A document supports this link but does not explicitly state causation.",
+    "HISTORICAL_SUPPORTED": "This relationship recurs in prior periods — pattern-based evidence.",
+    "TEMPORAL_STRUCTURAL": "Based on timing and entity overlap only. Causation is not established.",
+    "CORRELATION_ONLY": "Weakest evidence class. Causation is not established.",
+}
 DOC_STATUS_BADGE = {
     "STRONGLY_SUPPORTED": "✅ Strongly supported",
     "SUPPORTED": "✅ Supported",
@@ -30,6 +37,22 @@ DOC_STATUS_BADGE = {
     "MIXED_EVIDENCE": "⚠️ Mixed evidence",
     "CONTRADICTED": "❌ Contradicted",
     "NO_DOCUMENT_EVIDENCE": "📭 No document evidence",
+}
+ROOT_TYPE_LABEL = {
+    "SCHEDULE_CHANGE": "Supplier schedule disruption",
+    "SHIPMENT_DELAY": "Shipment delay",
+    "ORDER_DELIVERY": "Late order delivery",
+    "REFUND": "Refund event",
+    "WAREHOUSE_BACKLOG": "Warehouse backlog",
+    "SUPPORT_TICKET": "Customer complaint",
+    "REVENUE": "Revenue impact",
+}
+IMPACT_TYPE_LABEL = {
+    "REVENUE": "revenue impact",
+    "REFUND": "refund",
+    "SUPPORT_TICKET": "customer complaint",
+    "WAREHOUSE_BACKLOG": "warehouse backlog",
+    "SHIPMENT_DELAY": "shipment delay",
 }
 
 
@@ -78,6 +101,22 @@ def load_edge_evidence(edge_id, chain_id):
         SELECT * FROM {DB}.ANALYTICS.PROPAGATION_EVIDENCE
         WHERE EDGE_ID = '{safe_e}' AND CHAIN_ID = '{safe_c}'
         ORDER BY evidence_class, relevance_score DESC
+    """)
+
+
+@st.cache_data(ttl=300)
+def load_impact_revenue(region, impact_time):
+    safe_r = str(region).replace("'", "''")
+    impact_dt = pd.to_datetime(impact_time)
+    pre_start = (impact_dt - pd.Timedelta(days=19)).strftime("%Y-%m-%d")
+    pre_end = (impact_dt - pd.Timedelta(days=3)).strftime("%Y-%m-%d")
+    post_start = (impact_dt - pd.Timedelta(days=2)).strftime("%Y-%m-%d")
+    post_end = (impact_dt + pd.Timedelta(days=5)).strftime("%Y-%m-%d")
+    return q(f"""
+        SELECT
+            ROUND(AVG(CASE WHEN metric_date BETWEEN '{pre_start}' AND '{pre_end}' THEN revenue END), 0) AS pre_avg,
+            ROUND(AVG(CASE WHEN metric_date BETWEEN '{post_start}' AND '{post_end}' THEN revenue END), 0) AS post_avg
+        FROM {DB}.CORE.BUSINESS_METRICS WHERE region = '{safe_r}'
     """)
 
 
@@ -146,43 +185,66 @@ steps = load_chain_steps(selected_chain)
 # PAGE 1: CHAIN INVESTIGATION
 # ═══════════════════════════════════════════════════════
 if page == "Chain Investigation":
-    st.markdown(f"# {chain_labels[selected_chain]}")
-    st.caption(f"Chain: `{selected_chain}` · {chain_info['CHAIN_STATUS']}")
+    # ── Narrative header ──
+    root_label = ROOT_TYPE_LABEL.get(str(chain_info["ROOT_TYPE"]), str(chain_info["ROOT_TYPE"]))
+    impact_label = IMPACT_TYPE_LABEL.get(str(chain_info["IMPACT_TYPE"]), str(chain_info["IMPACT_TYPE"]))
+    region = str(chain_info["IMPACT_REGION"]).capitalize()
 
-    # ── Executive summary cards ──
+    st.markdown(f"# {root_label} → {region}-region {impact_label}")
+    st.caption(
+        "PROPAGATE traces the propagation path from the earliest meaningful signal "
+        "through downstream business effects, using evidence at each step."
+    )
+
+    # ── Hero metric: detection opportunity ──
     root_ts = pd.to_datetime(chain_info["ROOT_TIME"])
     impact_ts = pd.to_datetime(chain_info["IMPACT_TIME"])
     lead_days = int(chain_info["INTERVENTION_LEAD_DAYS"])
-
-    c1, c2, c3, c4, c5, c6 = st.columns(6)
-    c1.metric("Earliest Signal", fmt_date(chain_info["ROOT_TIME"]),
-              help=f"{chain_info['ROOT_TYPE']} ({chain_info['EARLIEST_SIGNAL_FUNCTION']})")
-    c2.metric("Intervention Point", fmt_date(chain_info["ROOT_TIME"]),
-              help=f"Potential intervention at {chain_info['INTERVENTION_FUNCTION']} function. "
-                   "Does not establish that intervention would have prevented the impact.")
-    c3.metric("Signal → Impact", f"{lead_days} days",
-              help=f"Calendar days (DATEDIFF) from earliest signal "
-                   f"({root_ts.strftime('%b %d %H:%M')}) to observed business impact "
-                   f"({impact_ts.strftime('%b %d %H:%M')}). "
-                   f"Elapsed time: {(impact_ts - root_ts).total_seconds() / 86400:.1f} days.")
-    c4.metric("Chain Length", f"{int(chain_info['EDGE_COUNT'])} steps")
-
     edges_with_evidence = len(steps[steps["DOCUMENT_EVIDENCE_STATUS"] != "NO_DOCUMENT_EVIDENCE"]) if len(steps) else 0
     total_edges = len(steps)
-    c5.metric("Evidence Coverage", f"{edges_with_evidence}/{total_edges}",
-              help="Chain edges with document evidence")
-
     gaps = len(steps[steps["DOCUMENT_EVIDENCE_STATUS"] == "NO_DOCUMENT_EVIDENCE"]) if len(steps) else 0
     contradictions = len(steps[steps["CONTRADICTING_DOC_COUNT"] > 0]) if len(steps) else 0
-    gap_label = f"{gaps} gaps" if gaps else "None"
-    if contradictions:
-        gap_label += f", {contradictions} contradicted"
-    c6.metric("Evidence Gaps", gap_label)
+
+    hero_col, detail_col = st.columns([1, 2])
+    with hero_col:
+        st.metric("Earliest Detection Opportunity", f"{lead_days} days",
+                  help=f"Calendar days from earliest signal ({root_ts.strftime('%b %d %H:%M')}) "
+                       f"to observed business impact ({impact_ts.strftime('%b %d %H:%M')}).")
+        st.caption("Potential opportunity to detect the issue before downstream business impact.")
+    with detail_col:
+        d1, d2, d3 = st.columns(3)
+        d1.metric("Propagation Steps", f"{int(chain_info['EDGE_COUNT'])}")
+        d2.metric("Evidence Coverage", f"{edges_with_evidence}/{total_edges}",
+                  help="Chain edges with document evidence")
+        gap_label = "None" if not gaps else f"{gaps} gaps"
+        if contradictions:
+            gap_label += f", {contradictions} contradicted"
+        d3.metric("Evidence Gaps", gap_label)
+
+    # ── Business impact context ──
+    if str(chain_info["IMPACT_TYPE"]) == "REVENUE" and pd.notna(chain_info["IMPACT_TIME"]):
+        rev_data = load_impact_revenue(chain_info["IMPACT_REGION"], chain_info["IMPACT_TIME"])
+        if len(rev_data) and pd.notna(rev_data.iloc[0]["PRE_AVG"]) and pd.notna(rev_data.iloc[0]["POST_AVG"]):
+            pre = int(rev_data.iloc[0]["PRE_AVG"])
+            post = int(rev_data.iloc[0]["POST_AVG"])
+            st.markdown(
+                f"**Business impact:** {region}-region daily revenue fell from "
+                f"approximately **${pre:,}** to **${post:,}** during the impact window."
+            )
+        else:
+            st.markdown(f"**Business impact:** {region}-region revenue decline detected during the chain impact window.")
+
+    st.caption(
+        f"Earliest signal: **{fmt_date(chain_info['ROOT_TIME'])}** "
+        f"({chain_info['EARLIEST_SIGNAL_FUNCTION']}) · "
+        f"Impact: **{fmt_date(chain_info['IMPACT_TIME'])}** · "
+        f"Chain: `{selected_chain}`"
+    )
 
     st.markdown("---")
 
     # ── Propagation Timeline ──
-    st.subheader("Propagation Timeline")
+    st.subheader("Propagation Path")
 
     if len(steps):
         for _, e in steps.iterrows():
@@ -203,6 +265,7 @@ if page == "Chain Investigation":
             badge = CLASS_BADGE.get(s_class, s_class)
             doc_badge = DOC_STATUS_BADGE.get(doc_status, doc_status)
             color = CLASS_COLOR.get(s_class, "#666")
+            opacity = "1.0" if s_score >= 0.55 else "0.6"
 
             if step_num == 1:
                 st.markdown(f"**{src_time}** · `{src_entity}` · {src_fn}")
@@ -211,7 +274,7 @@ if page == "Chain Investigation":
                 col_arrow, col_detail = st.columns([1, 11])
                 with col_arrow:
                     st.markdown(
-                        f"<div style='text-align:center;font-size:1.5em;color:{color}'>↓</div>",
+                        f"<div style='text-align:center;font-size:1.5em;color:{color};opacity:{opacity}'>↓</div>",
                         unsafe_allow_html=True,
                     )
                 with col_detail:
@@ -226,6 +289,35 @@ if page == "Chain Investigation":
                     snippet_val = e["SUPPORT_SNIPPET"] if "SUPPORT_SNIPPET" in e.index else None
                     if pd.notna(snippet_val) and str(snippet_val) not in ("", "None"):
                         st.caption(f'📄 *"{str(snippet_val)[:120]}..."*')
+
+                    # ── Inline evidence expansion ──
+                    edge_id = str(e["EDGE_ID"])
+                    with st.expander("View evidence details"):
+                        st.markdown(f"**Relationship**: {relation_label(str(e['RELATION']))}")
+                        st.markdown(f"**Evidence class**: {badge}")
+                        st.caption(CLASS_EXPLAIN.get(s_class, ""))
+                        st.markdown(f"**Document evidence**: {doc_badge}")
+                        ev = load_edge_evidence(edge_id, selected_chain)
+                        if len(ev) == 0:
+                            st.warning(
+                                "📭 No document evidence found. This edge is supported by "
+                                "structured operational data only."
+                            )
+                        else:
+                            for _, d in ev.iterrows():
+                                ec = str(d.get("EVIDENCE_CLASS", ""))
+                                icon = "📄" if ec == "SUPPORTS" else "❌" if ec == "CONTRADICTS" else "📋"
+                                doc_id = str(d.get("DOCUMENT_ID", ""))
+                                doc_type = str(d.get("DOCUMENT_TYPE", ""))
+                                strength = str(d.get("EVIDENCE_STRENGTH", ""))
+                                snip = str(d.get("EVIDENCE_SNIPPET", ""))
+                                label = f"{icon} **{doc_id}** ({doc_type}) — {ec} · {strength}"
+                                st.markdown(label)
+                                if snip and snip != "None":
+                                    if ec == "CONTRADICTS":
+                                        st.error(f'"{snip}"')
+                                    else:
+                                        st.info(f'"{snip}"')
 
             st.markdown(f"**{tgt_time}** · `{tgt_entity}` · {tgt_fn}")
 
@@ -296,6 +388,7 @@ elif page == "Evidence Deep-Dive":
 
         st.markdown(f"**Relationship**: {relation_label(str(e['RELATION']))}")
         st.markdown(f"**Evidence class**: {CLASS_BADGE.get(str(e['STRUCTURAL_CLASS']), str(e['STRUCTURAL_CLASS']))}")
+        st.caption(CLASS_EXPLAIN.get(str(e["STRUCTURAL_CLASS"]), ""))
         st.markdown(f"**Document status**: {DOC_STATUS_BADGE.get(str(e['DOCUMENT_EVIDENCE_STATUS']), str(e['DOCUMENT_EVIDENCE_STATUS']))}")
 
         st.markdown("---")
