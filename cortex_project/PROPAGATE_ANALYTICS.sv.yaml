@@ -226,9 +226,12 @@ tables:
         expr: DOCUMENT_SCORE
         data_type: FLOAT
         description: Phase 3 net document evidence score (-1 to +1)
-      - name: COHERENCE_SCORE
+      - name: CHAIN_COHERENCE_SCORE
         expr: COHERENCE_SCORE
         data_type: FLOAT
+        description: >
+          Chain-level coherence score (0-1) from the parent CHAINS table.
+          This is NOT an edge-level metric. Use STRUCTURAL_SCORE for edge-level evidence strength.
       - name: INTERVENTION_LEAD_DAYS
         expr: INTERVENTION_LEAD_DAYS
         data_type: NUMBER
